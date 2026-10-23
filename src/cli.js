@@ -62,6 +62,20 @@ const ROOT = path.basename(__dirname) === 'src' ? path.resolve(__dirname, '..') 
 const KEYS_FILE = path.join(ROOT, 'keys.txt');
 const ACCOUNTS_FILE = path.join(ROOT, 'accounts.json');
 
+/** Dead-key report: only definite rejections — 429/5xx/transport never land here. */
+const DEAD_FILE = path.join(ROOT, 'keys-dead.txt');
+const DEAD_STATUS = new Set([401, 403]);
+const DEAD_REASON = /banned|deactivated|disabled|suspended|quota|insufficient|forbidden|unauthorized/i;
+function recordDead(key, status, sample) {
+  if (!key) return;
+  if (!DEAD_STATUS.has(Number(status)) && !DEAD_REASON.test(String(sample || ''))) return;
+  const why = `${status}${sample ? ' ' + String(sample).replace(/\s+/g, ' ').slice(0, 60) : ''}`;
+  try {
+    fs.mkdirSync(path.dirname(DEAD_FILE), { recursive: true });
+    fs.appendFileSync(DEAD_FILE, `${key}\t${why}\t${new Date().toISOString()}\n`);
+  } catch (e) { /* diagnostics must never break the run */ }
+}
+
 const AUTH_BASE = (process.env.LLM7_AUTH_BASE || 'https://api-token.llm7.io').replace(/\/$/, '');
 const EV_BASE = (process.env.LLM7_EV_BASE || 'https://api.llm7.io').replace(/\/$/, '');
 const API_BASE = (process.env.LLM7_API_BASE || 'https://api.llm7.io/v1').replace(/\/$/, '');
@@ -397,7 +411,10 @@ async function mintAccount(idx) {
     catch (e) { mark(ex, false, e.message.slice(0, 50)); gate = { ok: false, status: 0 }; }
   }
   note('gate', { status: gate.status, content: String(gate.content || '').slice(0, 40) });
-  if (!gate.ok) return { ok: false, reason: `gate-${gate.status}`, account, key: tok.key };
+  if (!gate.ok) {
+    recordDead(tok.key, gate.status, gate.sample);
+    return { ok: false, reason: `gate-${gate.status}`, account, key: tok.key };
+  }
 
   account.key = tok.key;
   return { ok: true, key: tok.key, account };
@@ -448,6 +465,7 @@ async function verifyOnly() {
     }
     if (!g) { console.log(`  ✘ ${keys[i].slice(0, 6)}… ${String(lastErr && lastErr.message).slice(0, 90)}`); continue; }
     if (g.ok) live++;
+    else recordDead(keys[i], g.status, g.sample);
     console.log(`  ${g.ok ? '✔' : '✘'} ${keys[i].slice(0, 6)}… chat=${g.status}`);
   }
   console.log(`verify: ${live}/${keys.length} keys live`);
