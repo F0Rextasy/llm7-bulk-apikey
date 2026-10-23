@@ -27,9 +27,16 @@
  * Scale note (measured 2026-10-23): minting from a large exit fleet currently
  * fails at step 3/5 — LLM7's e-mail-verification service answers
  * `403 ip_banned` (`request-code-403-ip_banned`) or `verify-403` for the exits
- * this lab has. The committed 3 keys in `keys.txt` were minted earlier and still
- * pass the gate. The tool is honest about it: it reports the 403 instead of
- * inventing a key.
+ * this lab has.
+ *
+ * KEYLESS note (measured 2026-10-23, lane aizzz+llm7): the step-8 gate CANNOT prove a key. The free
+ * ids answer at `https://api.llm7.io/v1/chat/completions` with **no** `Authorization` header, with a
+ * **garbage** bearer (`sk-0000…dummy`) and even with `Basic abc123` — all three return the same
+ * `chatcmpl_` id for the same prompt (evidence: `out/key-reality-*.json`). A key minted earlier is
+ * also rejected by the account API (`POST https://api-token.llm7.io/tokens` → `401 Invalid token`),
+ * and 9Router consumes llm7 keylessly through the `keyless2api` bridge on :8789. So the 3 lines in
+ * `keys.txt` are dummies: **llm7 needs no key**, and `--count` targets a quantity that has no effect.
+ * Minting is additionally blocked earlier by the `403 ip_banned` wall above.
  *
  * Options:
  *   --count N        accounts (= keys) to mint                          [1]
