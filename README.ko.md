@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | `keys.txt`의 모든 키를 채팅 게이트를 통해 다시 실행 |
 | `--keyless-check` | 키 없는 무료 세트를 증명 |
 | `--screen` | `api.llm7.io`에 대해 풀을 스크리닝 |
-| `--tries N` | 포기하기 전 단계당 시도할 출구 수 `[4]` |
+| `--exits N` | 포기하기 전 단계당 시도할 출구 수 `[6]` |
 | `--timeout MS` | 요청당 타임아웃 `[45000]` |
 
 | 환경 변수 | 기본값 | 의미 |

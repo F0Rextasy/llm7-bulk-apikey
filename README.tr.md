@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | `keys.txt` içindeki her anahtarı sohbet kapısından yeniden geçir |
 | `--keyless-check` | anahtarsız ücretsiz seti kanıtlar |
 | `--screen` | havuzu `api.llm7.io`'ya karşı tarar |
-| `--tries N` | vazgeçmeden önce adım başına denenen çıkış sayısı `[4]` |
+| `--exits N` | vazgeçmeden önce adım başına denenen çıkış sayısı `[6]` |
 | `--timeout MS` | istek başına zaman aşımı `[45000]` |
 
 | Ortam değişkeni | Varsayılan | Anlamı |

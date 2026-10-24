@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | vuelve a ejecutar cada clave en `keys.txt` a través de la puerta de chat |
 | `--keyless-check` | demuestra el conjunto gratuito sin clave |
 | `--screen` | examina el grupo contra `api.llm7.io` |
-| `--tries N` | salidas probadas por paso antes de rendirse `[4]` |
+| `--exits N` | salidas probadas por paso antes de rendirse `[6]` |
 | `--timeout MS` | tiempo de espera por solicitud `[45000]` |
 
 | Variable de entorno | Predeterminado | Significado |

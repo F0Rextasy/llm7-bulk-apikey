@@ -114,6 +114,7 @@ if (has('help') || has('h')) {
   --count N        accounts to mint                                       [1]
   --model <id>     model used for the live gate            [codestral-latest]
   --pool <file>    proxy list, one exit per line (env LLM7_PROXIES) [optional]
+  --exits N        exits tried per step before giving up                  [6]
   --verify-only    re-run every key in keys.txt through the chat gate
   --keyless-check  prove the keyless free set
   --screen         only test the proxy list against api.llm7.io
@@ -126,7 +127,7 @@ Without a pool the tool connects directly.`);
 
 const COUNT = Math.max(1, parseInt(arg('count', '1'), 10) || 1);
 const MODEL = arg('model', process.env.LLM7_MODEL || 'codestral-latest');
-const TRIES = Math.max(1, parseInt(arg('tries', '4'), 10) || 4);
+const EXITS = Math.max(1, parseInt(arg('exits', '6'), 10) || 6);
 const TIMEOUT_MS = Math.max(5000, parseInt(arg('timeout', '45000'), 10) || 45000);
 const VERIFY_ONLY = has('verify-only');
 const KEYLESS = has('keyless-check');
@@ -174,6 +175,12 @@ function mark(entry, ok, why) {
   entry.fails++;
   if (entry.fails === 2) log(`exit ${entry.label} looks dead (${why || 'error'})`);
 }
+/** A dead exit, not a panel verdict — the flow rotates to the next candidate. */
+const isExitError = (e) =>
+  /proxy connect failed|proxy CONNECT refused|proxy timeout|connect timeout|connect failed|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ECONNABORTED|EPIPE|ENETUNREACH|EHOSTUNREACH|EAI_AGAIN|socket hang up|secureConnect|TLS|handshake/i.test(
+    String((e && e.message) || e),
+  );
+
 
 // --------------------------------------------------------------------- http
 /** One request through `proxy` (a parsed pool line; null = direct). Resolves on any HTTP status; throws on transport errors. */
@@ -213,10 +220,10 @@ function hreq(proxy, url, { method = 'GET', headers = {}, body = null, timeoutMs
 async function step(name, box, { retryStatus = [] }, fn) {
   let last = null;
   let lastErr = null;
-  for (let t = 0; t < TRIES; t++) {
+  for (let t = 0; t < EXITS; t++) {
     try {
       const r = await fn(box);
-      if (retryStatus.includes(r.status) && t < TRIES - 1) {
+      if (retryStatus.includes(r.status) && t < EXITS - 1) {
         mark(box.entry, false, `${name}:${r.status}`);
         const s = nextExit([box.entry && box.entry.label]);
         box.entry = s; box.p = s.p; box.label = s.label;
@@ -228,12 +235,14 @@ async function step(name, box, { retryStatus = [] }, fn) {
     } catch (e) {
       lastErr = e;
       mark(box.entry, false, e.message.slice(0, 50));
-      log(`${name}: exit ${box.label} failed: ${e.message.slice(0, 90)}`);
+      if (isExitError(e)) log(`${name}: exit ${box.label} dead (${e.message.slice(0, 70)}) → next exit`);
+      else log(`${name}: exit ${box.label} failed: ${e.message.slice(0, 90)}`);
       const s = nextExit([box.entry && box.entry.label]);
       box.entry = s; box.p = s.p; box.label = s.label;
     }
   }
   if (last) return last;
+  if (lastErr && isExitError(lastErr)) throw new Error(`no usable route — ${EXITS} candidate(s) over ${box.p ? box.label : 'direct mode (no proxy list)'}: every attempt died at the transport layer.`);
   throw lastErr || new Error(`${name}: all exits failed`);
 }
 
@@ -431,7 +440,7 @@ async function mintAccount(idx) {
 
   // 8. live gate
   let gate = { ok: false, status: 0 };
-  for (let t = 0; t < Math.min(TRIES, 3) && !gate.ok; t++) {
+  for (let t = 0; t < Math.min(EXITS, 3) && !gate.ok; t++) {
     const ex = nextExit();
     try { gate = await chatGate(ex, tok.key, MODEL); mark(ex, gate.status === 200, `chat:${gate.status}`); }
     catch (e) { mark(ex, false, e.message.slice(0, 50)); gate = { ok: false, status: 0 }; }
@@ -485,7 +494,7 @@ async function verifyOnly() {
   for (let i = 0; i < keys.length; i++) {
     let g = null;
     let lastErr = null;
-    for (let t = 0; t < Math.max(TRIES, 3); t++) {
+    for (let t = 0; t < Math.max(EXITS, 3); t++) {
       const ex = nextExit();
       try { g = await chatGate(ex, keys[i], MODEL); mark(ex, g.status === 200, `chat:${g.status}`); break; } catch (e) { lastErr = e; mark(ex, false, e.message.slice(0, 50)); }
     }

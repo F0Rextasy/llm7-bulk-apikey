@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | relancer chaque clé de `keys.txt` via la porte de chat |
 | `--keyless-check` | prouve l'ensemble gratuit sans clé |
 | `--screen` | teste le pool contre `api.llm7.io` |
-| `--tries N` | sorties essayées par étape avant d'abandonner `[4]` |
+| `--exits N` | sorties essayées par étape avant d'abandonner `[6]` |
 | `--timeout MS` | délai d'expiration par requête `[45000]` |
 
 | Variable d'environnement | Valeur par défaut | Signification |

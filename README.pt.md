@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | re-executa toda chave em `keys.txt` através do portão de chat |
 | `--keyless-check` | comprova o conjunto gratuito sem chave |
 | `--screen` | testa o pool contra `api.llm7.io` |
-| `--tries N` | saídas tentadas por etapa antes de desistir `[4]` |
+| `--exits N` | saídas tentadas por etapa antes de desistir `[6]` |
 | `--timeout MS` | timeout por requisição `[45000]` |
 
 | Variável de ambiente | Padrão | Significado |

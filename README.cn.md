@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | 通过聊天关卡重新运行 `keys.txt` 中的每个密钥 |
 | `--keyless-check` | 验证免密钥免费套餐 |
 | `--screen` | 针对 `api.llm7.io` 筛选代理池 |
-| `--tries N` | 放弃前每步尝试的出口数 `[4]` |
+| `--exits N` | 放弃前每步尝试的出口数 `[6]` |
 | `--timeout MS` | 每请求超时 `[45000]` |
 
 | 环境变量 | 默认值 | 含义 |

@@ -165,7 +165,7 @@ node src/cli.js --help
 | `--verify-only` | jeden Schlüssel in `keys.txt` erneut durch das Chat-Gate laufen lassen |
 | `--keyless-check` | beweist das schlüssellose kostenlose Set |
 | `--screen` | prüft den Pool gegen `api.llm7.io` |
-| `--tries N` | Exits, die pro Schritt versucht werden, bevor aufgegeben wird `[4]` |
+| `--exits N` | Exits, die pro Schritt versucht werden, bevor aufgegeben wird `[6]` |
 | `--timeout MS` | Timeout pro Anfrage `[45000]` |
 
 | Umgebungsvariable | Standard | Bedeutung |
