@@ -86,6 +86,11 @@ const FREE_MODELS = ['codestral-latest', 'gpt-oss:20b'];
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 
+// Shared/disposable boxes carry other tenants' mail: only a message that names
+// this panel may supply the code (measured 2026-10-24: dddai read a stranger's
+// code from a shared box). Override: --brand / LLM7_BRAND_RE.
+let BRAND = new RegExp(process.env.LLM7_BRAND_RE || 'llm7', 'i');
+
 // ------------------------------------------------------------------- options
 const argv = process.argv.slice(2);
 function arg(name, dflt) {
@@ -112,6 +117,7 @@ if (has('help') || has('h')) {
   --verify-only    re-run every key in keys.txt through the chat gate
   --keyless-check  prove the keyless free set
   --screen         only test the proxy list against api.llm7.io
+  --brand RE       sender/subject fence for the code mail (env LLM7_BRAND_RE)
 
 Requests go through your proxy list when one is provided (--pool / env).
 Without a pool the tool connects directly.`);
@@ -125,6 +131,7 @@ const TIMEOUT_MS = Math.max(5000, parseInt(arg('timeout', '45000'), 10) || 45000
 const VERIFY_ONLY = has('verify-only');
 const KEYLESS = has('keyless-check');
 const SCREEN = has('screen');
+if (arg('brand')) BRAND = new RegExp(arg('brand'), 'i'); // --brand overrides the mail fence
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a);
@@ -169,8 +176,8 @@ function mark(entry, ok, why) {
 }
 
 // --------------------------------------------------------------------- http
-/** One request through `exit.p` (null = direct). Resolves on any HTTP status; throws on transport errors. */
-function hreq(exit, url, { method = 'GET', headers = {}, body = null, timeoutMs = TIMEOUT_MS } = {}) {
+/** One request through `proxy` (a parsed pool line; null = direct). Resolves on any HTTP status; throws on transport errors. */
+function hreq(proxy, url, { method = 'GET', headers = {}, body = null, timeoutMs = TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const payload = body === null || body === undefined ? null : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
@@ -182,7 +189,7 @@ function hreq(exit, url, { method = 'GET', headers = {}, body = null, timeoutMs 
         host: u.hostname,
         port: u.port || 443,
         path: u.pathname + u.search,
-        agent: exit && exit.p ? createAgent({ ...exit.p, connectTimeoutMs: 8000, timeoutMs }) : undefined,
+        agent: proxy ? createAgent({ ...proxy, connectTimeoutMs: 8000, timeoutMs }) : undefined,
         headers: finalHeaders,
       },
       (res) => {
@@ -281,9 +288,25 @@ async function chatGate(exit, key, model = MODEL) {
 
 // --------------------------------------------------------------------- mail
 /** Wait for the 6-digit LLM7 code; a message is read through the account exit or direct. */
-async function waitForCode(email, exit, { timeoutMs = 210000, pollMs = 6000 } = {}) {
+/**
+ * Ids already in the box, taken BEFORE the code is requested. The Emailnator
+ * gmail pool is shared and recycled, so a mail that was already there belongs to
+ * another tenant and its 6 digits are not ours. A failed snapshot is not an
+ * empty box — it retries, then throws.
+ */
+async function snapshotIds(email, exit) {
+  for (let k = 0; k < 4; k++) {
+    try {
+      const msgs = await mail.listMessages(email, exit && exit.p);
+      if (Array.isArray(msgs)) return new Set(msgs.map((m) => String((m && m.id) || '')).filter(Boolean));
+    } catch (e) { /* retry */ }
+    await sleep(4000);
+  }
+  throw new Error('inbox snapshot failed (exits unhealthy)');
+}
+async function waitForCode(email, exit, { timeoutMs = 210000, pollMs = 6000, seenIds = [] } = {}) {
   const deadline = Date.now() + timeoutMs;
-  const seen = new Set();
+  const seen = new Set(seenIds instanceof Set ? seenIds : (seenIds || []).map(String));
   while (Date.now() < deadline) {
     let msgs = [];
     try {
@@ -296,6 +319,7 @@ async function waitForCode(email, exit, { timeoutMs = 210000, pollMs = 6000 } = 
       const id = String(m.id);
       if (seen.has(id)) continue;
       seen.add(id);
+      if (!BRAND.test(`${m.from || ''} ${m.subject || ''}`)) continue; // the panel's own mail only
       let full = m;
       try { full = await mail.readMessage(id, exit.p); } catch { /* keep the list row */ }
       const blob = `${m.subject || ''}\n${m.from || ''}\n${String(full.content || full.html || '').replace(/<[^>]+>/g, ' ')}`;
@@ -331,7 +355,7 @@ async function mintAccount(idx) {
 
   // 2. eligibility
   const elig = await step('eligibility', box, { retryStatus: [429, 403] }, (b) =>
-    hreq(b.p, `${AUTH_BASE}/auth/email/eligibility`, { body: { email } }).then((r) => {
+    hreq(b.p, `${AUTH_BASE}/auth/email/eligibility`, { method: 'POST', body: { email } }).then((r) => {
       let next = null;
       try { next = JSON.parse(r.text)?.next; } catch { /* keep null */ }
       return { status: r.status, next, text: r.text };
@@ -344,7 +368,7 @@ async function mintAccount(idx) {
 
   // 3. request the code (banned exits answer 403 here)
   const req = await step('request-code', box, { retryStatus: [429, 403] }, (b) =>
-    hreq(b.p, `${EV_BASE}/v1/email-verifications`, { body: { email } }).then((r) => {
+    hreq(b.p, `${EV_BASE}/v1/email-verifications`, { method: 'POST', body: { email } }).then((r) => {
       let j = null;
       try { j = JSON.parse(r.text); } catch { /* keep null */ }
       return { status: r.status, verification_id: j && j.verification_id, json: j, text: r.text };
@@ -362,13 +386,14 @@ async function mintAccount(idx) {
   }
 
   // 4. wait for the mail
-  const found = await waitForCode(email, box, { timeoutMs: 210000 });
+  const seenIds = await snapshotIds(email, box);
+  const found = await waitForCode(email, box, { timeoutMs: 210000, seenIds });
   if (!found) return { ok: false, reason: 'no-mail', account };
   note('mail', { subject: found.subject });
 
   // 5. verify the code -> receipt
   const ver = await step('verify', box, { retryStatus: [403] }, (b) =>
-    hreq(b.p, `${EV_BASE}/v1/email-verifications/verify`, { body: { verification_id: req.verification_id, code: found.code } }).then((r) => {
+    hreq(b.p, `${EV_BASE}/v1/email-verifications/verify`, { method: 'POST', body: { verification_id: req.verification_id, code: found.code } }).then((r) => {
       let j = null;
       try { j = JSON.parse(r.text); } catch { /* keep null */ }
       return { status: r.status, json: j, text: r.text };
@@ -379,7 +404,7 @@ async function mintAccount(idx) {
   // 6. session: the dashboard posts only the opaque `receipt` string
   const receipt = ver.json && typeof ver.json === 'object' ? ver.json.receipt : null;
   const sess = await step('session', box, {}, (b) =>
-    hreq(b.p, `${AUTH_BASE}/auth/email`, { body: { receipt } }).then((r) => {
+    hreq(b.p, `${AUTH_BASE}/auth/email`, { method: 'POST', body: { receipt } }).then((r) => {
       let j = null;
       try { j = JSON.parse(r.text); } catch { /* keep null */ }
       const auth_token = j && (j.auth_token || j.token || (j.data && j.data.auth_token));
@@ -392,6 +417,7 @@ async function mintAccount(idx) {
   // 7. create the key
   const tok = await step('create-token', box, {}, (b) =>
     hreq(b.p, `${AUTH_BASE}/tokens`, {
+      method: 'POST',
       headers: { authorization: `Bearer ${sess.auth_token}` },
       body: { name: `llm7-${idx}`, expires_at: new Date(Date.now() + 180 * 86400000).toISOString() },
     }).then((r) => {
@@ -475,7 +501,7 @@ async function verifyOnly() {
 /** Proves the keyless portal: same free ids, no Authorization header. */
 async function keylessCheck() {
   const ex = nextExit();
-  const models = await hreq(ex, `${API_BASE}/models`, { timeoutMs: 30000 });
+  const models = await hreq(ex.p, `${API_BASE}/models`, { timeoutMs: 30000 });
   let ids = [];
   try { ids = (JSON.parse(models.text).data || []).map((m) => m.id); } catch { /* keep empty */ }
   console.log(`keyless GET /models → ${models.status} · ${ids.length} id(s)`);
