@@ -42,6 +42,7 @@
  *   --count N        accounts (= keys) to mint                          [1]
  *   --model <id>     model id for the live gate           [codestral-latest]
  *   --pool <file>    proxy list, one exit per line (env LLM7_PROXIES) [proxies.txt]
+ *   --auto           headless-friendly alias (launcher passes it; no prompts ever)   
  *   --verify-only    re-run every key in keys.txt through the chat gate
  *   --keyless-check  prove the keyless free set (no Authorization header)
  *   --screen         test the proxy list against api.llm7.io
@@ -129,6 +130,7 @@ const COUNT = Math.max(1, parseInt(arg('count', '1'), 10) || 1);
 const MODEL = arg('model', process.env.LLM7_MODEL || 'codestral-latest');
 const EXITS = Math.max(1, parseInt(arg('exits', '6'), 10) || 6);
 const TIMEOUT_MS = Math.max(5000, parseInt(arg('timeout', '45000'), 10) || 45000);
+const AUTO = has('auto');
 const VERIFY_ONLY = has('verify-only');
 const KEYLESS = has('keyless-check');
 const SCREEN = has('screen');
